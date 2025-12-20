@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -41,21 +40,6 @@ def temp_chroma_dir():
 
 
 @pytest.fixture
-def mock_env(temp_vault, temp_chroma_dir):
-    """Set up mock environment variables."""
-    env_vars = {
-        "LLM_BASE_URL": "http://localhost:1234/v1",
-        "LLM_MODEL": "test-model",
-        "LLM_API_KEY": "test-key",
-        "OBSIDIAN_VAULT_PATH": str(temp_vault),
-        "CHROMA_PERSIST_DIR": str(temp_chroma_dir),
-        "CHROMA_COLLECTION": "test_collection",
-    }
-    with patch.dict(os.environ, env_vars, clear=False):
-        yield env_vars
-
-
-@pytest.fixture
 def mock_llm_response():
     """Mock LLM API response."""
     return {
@@ -79,13 +63,3 @@ def mock_llm_stream_response():
         'data: [DONE]\n',
     ]
     return chunks
-
-
-@pytest.fixture
-def test_client(mock_env):
-    """Create a test client for the FastAPI app."""
-    # Import here to use mocked env
-    from obsidian_chat.server import app
-
-    with TestClient(app) as client:
-        yield client

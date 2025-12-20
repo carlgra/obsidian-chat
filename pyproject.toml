@@ -5,22 +5,21 @@ description = "CLI tool for chatting with a local LLM using RAG from your Obsidi
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "typer>=0.9.0",
-    "rich>=13.0.0",
-    "httpx>=0.25.0",
-    "chromadb>=0.4.0",
-    "sentence-transformers>=2.2.0",
-    "python-dotenv>=1.0.0",
-    "fastapi>=0.104.0",
-    "uvicorn>=0.24.0",
+    "typer",
+    "rich",
+    "httpx",
+    "chromadb",
+    "sentence-transformers",
+    "python-dotenv",
+    "fastapi",
+    "uvicorn",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "httpx>=0.25.0",
-    "respx>=0.20.0",
+    "pytest",
+    "pytest-asyncio",
+    "respx",
 ]
 
 [project.scripts]
@@ -29,6 +28,9 @@ obsidian-chat = "obsidian_chat.main:app"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (loading ML models)",
+]
 
 [build-system]
 requires = ["hatchling"]
