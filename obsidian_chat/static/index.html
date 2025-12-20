@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Obsidian Chat</title>
+    <style>
+        :root {
+            /* Main colors - change these to update the entire theme */
+            --color-bg-main: #183d50;        /* Main chat area background */
+            --color-bg-panel: #1F4D64;       /* Header, sidebar, input area */
+            --color-bg-dark: #132f3d;        /* Code blocks, darker elements */
+            --color-accent-primary: #8264B8; /* Purple - headings, main buttons */
+            --color-accent-secondary: #28A1A9; /* Teal - borders, user messages */
+            --color-text: #ffffff;           /* Main text */
+            --color-text-muted: #aabbcc;     /* Secondary text */
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--color-bg-main);
+            color: var(--color-text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: var(--color-bg-panel);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--color-accent-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            color: var(--color-accent-primary);
+        }
+
+        .stats {
+            font-size: 0.85rem;
+            color: var(--color-text-muted);
+        }
+
+        .container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .chat-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 1rem;
+        }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 1rem;
+            border-radius: 12px;
+            line-height: 1.5;
+        }
+
+        .message.user {
+            background: var(--color-accent-secondary);
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant {
+            background: var(--color-bg-panel);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+
+        .message pre {
+            background: var(--color-bg-dark);
+            padding: 0.75rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 0.5rem 0;
+        }
+
+        .message code {
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.9em;
+        }
+
+        .sources {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--color-accent-secondary);
+            font-size: 0.8rem;
+            color: var(--color-text-muted);
+        }
+
+        .sources summary {
+            cursor: pointer;
+            color: var(--color-accent-primary);
+        }
+
+        .sources ul {
+            margin-top: 0.5rem;
+            padding-left: 1.5rem;
+        }
+
+        .sources li {
+            margin: 0.25rem 0;
+        }
+
+        .input-area {
+            padding: 1rem;
+            background: var(--color-bg-panel);
+            border-top: 1px solid var(--color-accent-secondary);
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 0.5rem;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        textarea {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--color-accent-secondary);
+            border-radius: 8px;
+            background: var(--color-bg-main);
+            color: var(--color-text);
+            font-size: 1rem;
+            font-family: inherit;
+            resize: none;
+            min-height: 50px;
+            max-height: 200px;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: var(--color-accent-primary);
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            background: var(--color-accent-primary);
+            color: var(--color-text);
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            filter: brightness(1.2);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            filter: none;
+        }
+
+        .btn-clear {
+            background: var(--color-bg-dark) !important;
+            border: 1px solid var(--color-accent-primary) !important;
+        }
+
+        .settings {
+            padding: 1rem;
+            background: var(--color-bg-panel);
+            border-left: 1px solid var(--color-accent-secondary);
+            width: 280px;
+        }
+
+        .settings h3 {
+            margin-bottom: 1rem;
+            color: var(--color-accent-primary);
+        }
+
+        .setting {
+            margin-bottom: 1rem;
+        }
+
+        .setting label {
+            display: block;
+            margin-bottom: 0.25rem;
+            font-size: 0.85rem;
+            color: var(--color-text-muted);
+        }
+
+        .setting input[type="number"],
+        .setting select {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--color-accent-secondary);
+            border-radius: 4px;
+            background: var(--color-bg-main);
+            color: var(--color-text);
+        }
+
+        .setting input[type="checkbox"] {
+            margin-right: 0.5rem;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--color-accent-secondary);
+            border-top-color: var(--color-accent-primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .typing-indicator {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 0.5rem 0;
+            color: var(--color-text-muted);
+        }
+
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background: var(--color-accent-primary);
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out;
+        }
+
+        .typing-indicator span:nth-child(1) { animation-delay: 0s; }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+            40% { transform: scale(1); opacity: 1; }
+        }
+
+        .status-text {
+            font-size: 0.85rem;
+            color: var(--color-text-muted);
+            margin-left: 8px;
+        }
+
+        .welcome {
+            text-align: center;
+            color: var(--color-text-muted);
+            padding: 2rem;
+        }
+
+        .welcome h2 {
+            color: var(--color-accent-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        /* Table styles */
+        .message table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 0.75rem 0;
+            font-size: 0.9rem;
+        }
+
+        .message th, .message td {
+            border: 1px solid var(--color-accent-secondary);
+            padding: 0.5rem 0.75rem;
+            text-align: left;
+        }
+
+        .message th {
+            background: var(--color-accent-secondary);
+            font-weight: 600;
+        }
+
+        .message tr:nth-child(even) {
+            background: rgba(255,255,255,0.05);
+        }
+
+        .message tr:hover {
+            background: rgba(130, 100, 184, 0.2);
+        }
+
+        /* List styles */
+        .message ul, .message ol {
+            margin: 0.5rem 0;
+            padding-left: 1.5rem;
+        }
+
+        .message li {
+            margin: 0.25rem 0;
+        }
+
+        /* Heading styles */
+        .message h1, .message h2, .message h3, .message h4 {
+            margin: 1rem 0 0.5rem 0;
+            color: var(--color-accent-primary);
+        }
+
+        .message h1 { font-size: 1.4rem; }
+        .message h2 { font-size: 1.2rem; }
+        .message h3 { font-size: 1.1rem; }
+
+        @media (max-width: 768px) {
+            .settings {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Obsidian Chat</h1>
+        <div class="stats" id="stats">Loading...</div>
+    </header>
+
+    <div class="container">
+        <div class="chat-area">
+            <div class="messages" id="messages">
+                <div class="welcome">
+                    <h2>Welcome to Obsidian Chat</h2>
+                    <p>Ask questions about your notes. Context from your vault will be used automatically.</p>
+                </div>
+            </div>
+            <div class="input-area">
+                <div class="input-wrapper">
+                    <textarea
+                        id="input"
+                        placeholder="Ask a question about your notes..."
+                        rows="1"
+                        onkeydown="handleKeyDown(event)"
+                    ></textarea>
+                    <button id="sendBtn" onclick="sendMessage()">Send</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings">
+            <h3>Settings</h3>
+            <div class="setting">
+                <label for="topK">Context chunks (top_k)</label>
+                <input type="number" id="topK" value="10" min="1" max="50">
+            </div>
+            <div class="setting">
+                <label>
+                    <input type="checkbox" id="useRag" checked>
+                    Use RAG context
+                </label>
+            </div>
+            <div class="setting">
+                <label>
+                    <input type="checkbox" id="streaming" checked>
+                    Stream response
+                </label>
+            </div>
+            <hr style="border-color: var(--color-accent-secondary); margin: 1rem 0;">
+            <div class="setting">
+                <button onclick="reindex()" style="width: 100%; background: var(--color-accent-secondary);">
+                    Reindex Vault
+                </button>
+            </div>
+            <div class="setting">
+                <button onclick="clearConversation()" class="btn-clear" style="width: 100%;">
+                    Clear Conversation
+                </button>
+            </div>
+            <div class="setting" id="contextInfo" style="font-size: 0.75rem; color: var(--color-text-muted);">
+                Messages: 0 | Summary: none
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const messagesEl = document.getElementById('messages');
+        const inputEl = document.getElementById('input');
+        const sendBtn = document.getElementById('sendBtn');
+        const statsEl = document.getElementById('stats');
+        const contextInfoEl = document.getElementById('contextInfo');
+
+        // Conversation history management
+        const SUMMARIZE_THRESHOLD = 6;  // Summarize after 6 messages (3 exchanges)
+        const KEEP_RECENT = 4;          // Keep last 4 messages (2 exchanges) verbatim
+
+        let conversationHistory = [];   // Full history for display
+        let conversationSummary = null; // Compressed summary of older messages
+
+        function updateContextInfo() {
+            const summaryStatus = conversationSummary ? 'active' : 'none';
+            contextInfoEl.textContent = `Messages: ${conversationHistory.length} | Summary: ${summaryStatus}`;
+        }
+
+        function showTypingIndicator(status = 'Thinking...') {
+            const indicator = document.createElement('div');
+            indicator.id = 'typingIndicator';
+            indicator.className = 'message assistant';
+            indicator.innerHTML = `
+                <div class="typing-indicator">
+                    <span></span><span></span><span></span>
+                    <span class="status-text">${status}</span>
+                </div>
+            `;
+            messagesEl.appendChild(indicator);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function updateTypingStatus(status) {
+            const statusEl = document.querySelector('#typingIndicator .status-text');
+            if (statusEl) statusEl.textContent = status;
+        }
+
+        function hideTypingIndicator() {
+            const indicator = document.getElementById('typingIndicator');
+            if (indicator) indicator.remove();
+        }
+
+        // Auto-resize textarea
+        inputEl.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+        });
+
+        // Load stats on startup
+        async function loadStats() {
+            try {
+                const res = await fetch('/stats');
+                const data = await res.json();
+                statsEl.textContent = `${data.total_chunks} chunks indexed`;
+            } catch (e) {
+                statsEl.textContent = 'Error loading stats';
+            }
+        }
+        loadStats();
+
+        function handleKeyDown(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        // Convert markdown to HTML with table support
+        function markdownToHtml(text) {
+            // Escape HTML first
+            let html = text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+            // Code blocks (before other processing)
+            html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+
+            // Tables
+            html = html.replace(/^(\|.+\|)\n(\|[-:\s|]+\|)\n((?:\|.+\|\n?)+)/gm, (match, header, separator, body) => {
+                const headers = header.split('|').filter(c => c.trim()).map(c => `<th>${c.trim()}</th>`).join('');
+                const rows = body.trim().split('\n').map(row => {
+                    const cells = row.split('|').filter(c => c.trim()).map(c => `<td>${c.trim()}</td>`).join('');
+                    return `<tr>${cells}</tr>`;
+                }).join('');
+                return `<table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
+            });
+
+            // Headers
+            html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+            html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+            html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+            html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+            // Bold and italic
+            html = html.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+            // Inline code
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+            // Unordered lists
+            html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
+            html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+
+            // Ordered lists
+            html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+
+            // Line breaks (but not inside tables/pre)
+            html = html.replace(/\n/g, '<br>');
+
+            // Clean up extra breaks after block elements
+            html = html.replace(/<\/(table|pre|ul|ol|h[1-4])><br>/g, '</$1>');
+            html = html.replace(/<br><(table|pre|ul|ol|h[1-4])/g, '<$1');
+
+            return html;
+        }
+
+        function addMessage(role, content, sources = []) {
+            // Remove welcome message if present
+            const welcome = messagesEl.querySelector('.welcome');
+            if (welcome) welcome.remove();
+
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+
+            div.innerHTML = markdownToHtml(content);
+
+            if (sources.length > 0) {
+                const sourcesHtml = `
+                    <details class="sources">
+                        <summary>Sources (${sources.length})</summary>
+                        <ul>
+                            ${sources.map(s => `<li>${s.source} (${(s.score * 100).toFixed(0)}%)</li>`).join('')}
+                        </ul>
+                    </details>
+                `;
+                div.innerHTML += sourcesHtml;
+            }
+
+            messagesEl.appendChild(div);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            return div;
+        }
+
+        async function summarizeOldMessages() {
+            // Get messages to summarize (all except the most recent KEEP_RECENT)
+            const toSummarize = conversationHistory.slice(0, -KEEP_RECENT);
+            if (toSummarize.length === 0) return;
+
+            try {
+                const res = await fetch('/summarize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: toSummarize })
+                });
+                const data = await res.json();
+
+                // Combine with existing summary if present
+                if (conversationSummary) {
+                    conversationSummary = `${conversationSummary} ${data.summary}`;
+                } else {
+                    conversationSummary = data.summary;
+                }
+
+                // Keep only recent messages in active history
+                conversationHistory = conversationHistory.slice(-KEEP_RECENT);
+                updateContextInfo();
+                console.log('Conversation summarized:', conversationSummary);
+            } catch (e) {
+                console.error('Failed to summarize:', e);
+            }
+        }
+
+        function getHistoryForRequest() {
+            // Return recent history (excluding current message which is sent separately)
+            return conversationHistory.map(m => ({ role: m.role, content: m.content }));
+        }
+
+        async function sendMessage() {
+            const message = inputEl.value.trim();
+            if (!message) return;
+
+            const topK = parseInt(document.getElementById('topK').value);
+            const useRag = document.getElementById('useRag').checked;
+            const streaming = document.getElementById('streaming').checked;
+
+            // Add user message to display
+            addMessage('user', message);
+            inputEl.value = '';
+            inputEl.style.height = 'auto';
+
+            // Disable input and show loading
+            sendBtn.disabled = true;
+            inputEl.disabled = true;
+            showTypingIndicator(useRag ? 'Searching notes...' : 'Thinking...');
+
+            // Prepare request with history
+            const requestBody = {
+                message,
+                top_k: topK,
+                use_rag: useRag,
+                history: getHistoryForRequest(),
+                summary: conversationSummary
+            };
+
+            try {
+                let assistantContent = '';
+
+                if (streaming) {
+                    updateTypingStatus('Connecting to LLM...');
+                    // Streaming response
+                    const res = await fetch('/chat/stream', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestBody)
+                    });
+
+                    hideTypingIndicator();
+                    const assistantDiv = addMessage('assistant', '');
+                    const reader = res.body.getReader();
+                    const decoder = new TextDecoder();
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        assistantContent += decoder.decode(value);
+                        assistantDiv.innerHTML = markdownToHtml(assistantContent);
+                        messagesEl.scrollTop = messagesEl.scrollHeight;
+                    }
+                } else {
+                    updateTypingStatus('Waiting for response...');
+                    // Non-streaming response
+                    requestBody.stream = false;
+                    const res = await fetch('/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestBody)
+                    });
+                    hideTypingIndicator();
+                    const data = await res.json();
+                    assistantContent = data.response;
+                    addMessage('assistant', data.response, data.sources);
+                }
+
+                // Add to conversation history
+                conversationHistory.push({ role: 'user', content: message });
+                conversationHistory.push({ role: 'assistant', content: assistantContent });
+                updateContextInfo();
+
+                // Check if we need to summarize
+                if (conversationHistory.length >= SUMMARIZE_THRESHOLD + KEEP_RECENT) {
+                    updateTypingStatus('Summarizing conversation...');
+                    showTypingIndicator('Summarizing conversation...');
+                    await summarizeOldMessages();
+                    hideTypingIndicator();
+                }
+
+            } catch (e) {
+                hideTypingIndicator();
+                addMessage('assistant', `Error: ${e.message}`);
+            } finally {
+                sendBtn.disabled = false;
+                inputEl.disabled = false;
+                inputEl.focus();
+            }
+        }
+
+        function clearConversation() {
+            conversationHistory = [];
+            conversationSummary = null;
+            messagesEl.innerHTML = `
+                <div class="welcome">
+                    <h2>Welcome to Obsidian Chat</h2>
+                    <p>Ask questions about your notes. Context from your vault will be used automatically.</p>
+                </div>
+            `;
+            updateContextInfo();
+        }
+
+        async function reindex() {
+            if (!confirm('Reindex the entire vault? This may take a few minutes.')) return;
+
+            statsEl.textContent = 'Reindexing...';
+            try {
+                const res = await fetch('/index', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force: true })
+                });
+                const data = await res.json();
+                statsEl.textContent = `Indexed ${data.files_processed} files, ${data.chunks_added} chunks`;
+                loadStats();
+            } catch (e) {
+                statsEl.textContent = `Error: ${e.message}`;
+            }
+        }
+
+        // Focus input on load
+        inputEl.focus();
+    </script>
+</body>
+</html>
