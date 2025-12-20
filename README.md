@@ -87,6 +87,34 @@ Then open http://127.0.0.1:8000 in your browser.
 | `/query` | POST | Query notes (RAG only, no LLM) |
 | `/chat` | POST | Chat with LLM + RAG context |
 | `/chat/stream` | POST | Streaming chat response |
+| `/summarize` | POST | Summarize conversation for context compression |
+
+## Customizing the Web UI Theme
+
+The web UI uses CSS variables for easy theming. Edit the `:root` section in `obsidian_chat/static/index.html`:
+
+```css
+:root {
+    /* Main colors - change these to update the entire theme */
+    --color-bg-main: #183d50;        /* Main chat area background */
+    --color-bg-panel: #1F4D64;       /* Header, sidebar, input area */
+    --color-bg-dark: #132f3d;        /* Code blocks, darker elements */
+    --color-accent-primary: #8264B8; /* Purple - headings, main buttons */
+    --color-accent-secondary: #28A1A9; /* Teal - borders, user messages */
+    --color-text: #ffffff;           /* Main text */
+    --color-text-muted: #aabbcc;     /* Secondary text */
+}
+```
+
+| Variable | Purpose |
+|----------|---------|
+| `--color-bg-main` | Main chat area background |
+| `--color-bg-panel` | Header, sidebar, and input area |
+| `--color-bg-dark` | Code blocks and darker elements |
+| `--color-accent-primary` | Headings, main buttons, highlights |
+| `--color-accent-secondary` | Borders, user message bubbles |
+| `--color-text` | Primary text color |
+| `--color-text-muted` | Secondary/muted text |
 
 ## Auto-Start on macOS
 
@@ -154,9 +182,27 @@ tail -f ~/Library/Logs/obsidian-chat.log
 tail -f ~/Library/Logs/obsidian-chat.error.log
 ```
 
+## Development
+
+### Running Tests
+
+Install dev dependencies and run tests:
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+Run with coverage:
+
+```bash
+pytest --cov=obsidian_chat
+```
+
 ## Architecture
 
 - **FastAPI** - Web server and API
 - **ChromaDB** - Vector database for embeddings
 - **sentence-transformers** - Text embeddings (all-MiniLM-L6-v2)
 - **Typer** - CLI framework
+- **pytest** - Testing framework
