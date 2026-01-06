@@ -6,7 +6,10 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from the project root (parent of this file's directory)
+_project_root = Path(__file__).parent.parent
+_env_file = _project_root / ".env"
+load_dotenv(_env_file, override=True)
 
 
 @dataclass
