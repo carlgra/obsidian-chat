@@ -463,8 +463,11 @@
 
         // Convert markdown to HTML with table support
         function markdownToHtml(text) {
-            // Escape HTML first
-            let html = text
+            // Convert HTML line breaks to newlines before escaping
+            let html = text.replace(/<br\s*\/?>/gi, '\n');
+
+            // Escape HTML
+            html = html
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;');
