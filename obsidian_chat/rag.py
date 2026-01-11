@@ -22,6 +22,13 @@ DEFAULT_IGNORE_DIRS = {
     ".DS_Store",
 }
 
+# Supported file extensions and their types
+SUPPORTED_EXTENSIONS = {
+    ".md": "markdown",
+    ".txt": "text",
+    ".pdf": "pdf",
+}
+
 
 class ObsidianRAG:
     """RAG system for Obsidian vault using ChromaDB."""
@@ -65,11 +72,40 @@ class ObsidianRAG:
                 return True
         return False
 
-    def _iter_markdown_files(self) -> Iterator[Path]:
-        """Iterate over all markdown files in the vault, excluding ignored dirs."""
-        for md_file in self.vault_path.rglob("*.md"):
-            if not self._should_ignore(md_file.relative_to(self.vault_path)):
-                yield md_file
+    def _iter_supported_files(self) -> Iterator[Path]:
+        """Iterate over all supported files in the vault, excluding ignored dirs."""
+        for ext in SUPPORTED_EXTENSIONS:
+            for file_path in self.vault_path.rglob(f"*{ext}"):
+                if not self._should_ignore(file_path.relative_to(self.vault_path)):
+                    yield file_path
+
+    def _extract_text(self, file_path: Path) -> str:
+        """Extract text content from a file based on its type."""
+        ext = file_path.suffix.lower()
+        file_type = SUPPORTED_EXTENSIONS.get(ext)
+
+        if file_type in ("markdown", "text"):
+            return file_path.read_text(encoding="utf-8")
+
+        elif file_type == "pdf":
+            return self._extract_pdf_text(file_path)
+
+        return ""
+
+    def _extract_pdf_text(self, file_path: Path) -> str:
+        """Extract text from a PDF file."""
+        try:
+            from pypdf import PdfReader
+
+            reader = PdfReader(file_path)
+            text_parts = []
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text_parts.append(page_text)
+            return "\n\n".join(text_parts)
+        except Exception as e:
+            raise ValueError(f"Failed to extract PDF text: {e}")
 
     def _chunk_text(
         self, text: str, chunk_size: int = 1000, overlap: int = 200
@@ -86,7 +122,9 @@ class ObsidianRAG:
         return chunks
 
     def index_vault(self, force_reindex: bool = False) -> dict:
-        """Index all markdown files in the Obsidian vault.
+        """Index all supported files in the Obsidian vault.
+
+        Supports: Markdown (.md), Text (.txt), PDF (.pdf)
 
         Args:
             force_reindex: If True, delete existing collection and reindex.
@@ -101,12 +139,20 @@ class ObsidianRAG:
                 metadata={"hnsw:space": "cosine"},
             )
 
-        stats = {"files_processed": 0, "chunks_added": 0, "errors": []}
+        stats = {
+            "files_processed": 0,
+            "chunks_added": 0,
+            "errors": [],
+            "by_type": {"markdown": 0, "text": 0, "pdf": 0},
+        }
 
-        for md_file in self._iter_markdown_files():
+        for file_path in self._iter_supported_files():
             try:
-                relative_path = md_file.relative_to(self.vault_path)
-                content = md_file.read_text(encoding="utf-8")
+                relative_path = file_path.relative_to(self.vault_path)
+                file_type = SUPPORTED_EXTENSIONS.get(file_path.suffix.lower(), "unknown")
+
+                # Extract text content
+                content = self._extract_text(file_path)
 
                 # Skip empty files
                 if not content.strip():
@@ -135,16 +181,18 @@ class ObsidianRAG:
                             {
                                 "source": str(relative_path),
                                 "chunk_index": i,
-                                "title": md_file.stem,
+                                "title": file_path.stem,
+                                "file_type": file_type,
                             }
                         ],
                     )
                     stats["chunks_added"] += 1
 
                 stats["files_processed"] += 1
+                stats["by_type"][file_type] = stats["by_type"].get(file_type, 0) + 1
 
             except Exception as e:
-                stats["errors"].append(f"{md_file}: {e}")
+                stats["errors"].append(f"{file_path}: {e}")
 
         return stats
 

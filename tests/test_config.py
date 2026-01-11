@@ -21,17 +21,19 @@ class TestConfig:
             "CHROMA_PERSIST_DIR": str(temp_chroma_dir),
         }
 
-        with patch.dict(os.environ, env_vars, clear=False):
-            # Reload module to pick up new env vars
-            import obsidian_chat.config
-            importlib.reload(obsidian_chat.config)
-            from obsidian_chat.config import Config
+        # Mock load_dotenv to prevent .env from overriding test vars
+        with patch("dotenv.load_dotenv"):
+            with patch.dict(os.environ, env_vars, clear=False):
+                # Reload module to pick up new env vars
+                import obsidian_chat.config
+                importlib.reload(obsidian_chat.config)
+                from obsidian_chat.config import Config
 
-            config = Config()
+                config = Config()
 
-            assert config.llm_base_url == "http://test-server:1234/v1"
-            assert config.llm_model == "test-model"
-            assert config.llm_api_key == "test-key"
+                assert config.llm_base_url == "http://test-server:1234/v1"
+                assert config.llm_model == "test-model"
+                assert config.llm_api_key == "test-key"
 
     def test_config_has_defaults(self):
         """Test that config dataclass has default values defined."""

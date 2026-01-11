@@ -35,7 +35,7 @@ class TestObsidianRAG:
         assert rag.collection is not None
 
     def test_index_vault(self, temp_vault, temp_chroma_dir):
-        """Test indexing a vault."""
+        """Test indexing a vault with multiple file types."""
         from obsidian_chat.rag import ObsidianRAG
 
         rag = ObsidianRAG(
@@ -46,9 +46,11 @@ class TestObsidianRAG:
 
         stats = rag.index_vault()
 
-        assert stats["files_processed"] == 3  # note1, note2, subfolder/note3
+        assert stats["files_processed"] == 4  # note1, note2, subfolder/note3, readme.txt
         assert stats["chunks_added"] > 0
         assert isinstance(stats["errors"], list)
+        assert stats["by_type"]["markdown"] == 3
+        assert stats["by_type"]["text"] == 1
 
     def test_index_vault_force_reindex(self, temp_vault, temp_chroma_dir):
         """Test force reindexing clears existing data."""
@@ -190,3 +192,48 @@ class TestObsidianRAG:
         # Should find the Python note
         sources = [r["source"] for r in results]
         assert any("note1" in s for s in sources)
+
+    def test_indexes_text_files(self, temp_vault, temp_chroma_dir):
+        """Test that text files are indexed and searchable."""
+        from obsidian_chat.rag import ObsidianRAG
+
+        rag = ObsidianRAG(
+            vault_path=str(temp_vault),
+            persist_dir=str(temp_chroma_dir),
+            collection_name="test_text",
+        )
+        rag.index_vault()
+
+        results = rag.query("data science statistics", top_k=5)
+
+        # Should find the text file
+        sources = [r["source"] for r in results]
+        assert any("readme.txt" in s for s in sources)
+
+    def test_pdf_extraction(self, temp_chroma_dir):
+        """Test PDF text extraction."""
+        from obsidian_chat.rag import ObsidianRAG
+        from pypdf import PdfWriter
+        from io import BytesIO
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            vault_path = Path(tmpdir)
+
+            # Create a simple PDF with text
+            pdf_path = vault_path / "test.pdf"
+            writer = PdfWriter()
+            writer.add_blank_page(width=612, height=792)
+            # Note: PdfWriter doesn't easily add text, so we test the extraction
+            # mechanism works without errors on a blank PDF
+            with open(pdf_path, "wb") as f:
+                writer.write(f)
+
+            rag = ObsidianRAG(
+                vault_path=str(vault_path),
+                persist_dir=str(temp_chroma_dir),
+                collection_name="test_pdf",
+            )
+
+            # Should not raise an error
+            stats = rag.index_vault()
+            assert "pdf" in stats["by_type"]

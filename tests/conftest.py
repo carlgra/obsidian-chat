@@ -10,11 +10,11 @@ import pytest
 
 @pytest.fixture
 def temp_vault():
-    """Create a temporary vault with sample markdown files."""
+    """Create a temporary vault with sample files (markdown, text, pdf)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         vault_path = Path(tmpdir)
 
-        # Create sample notes
+        # Create sample markdown notes
         (vault_path / "note1.md").write_text(
             "# Python Basics\n\nPython is a programming language.\n\n"
             "## Variables\n\nVariables store data."
@@ -27,6 +27,12 @@ def temp_vault():
         (vault_path / "subfolder" / "note3.md").write_text(
             "# Machine Learning\n\nML is a subset of AI.\n\n"
             "## Neural Networks\n\nNeural networks learn patterns."
+        )
+
+        # Create a text file
+        (vault_path / "readme.txt").write_text(
+            "This is a plain text file about data science.\n"
+            "It contains information about statistics and analysis."
         )
 
         yield vault_path
