@@ -383,6 +383,12 @@
                     Stream response
                 </label>
             </div>
+            <div class="setting" id="researchSetting" style="display: none;">
+                <label>
+                    <input type="checkbox" id="useResearch">
+                    Search academic papers
+                </label>
+            </div>
             <hr style="border-color: var(--color-accent-secondary); margin: 1rem 0;">
             <div class="setting">
                 <button onclick="reindex()" style="width: 100%; background: var(--color-accent-secondary);">
@@ -462,12 +468,17 @@
         }
         loadVersion();
 
-        // Load stats on startup
+        // Load stats and check research availability on startup
         async function loadStats() {
             try {
-                const res = await fetch('/stats');
+                const res = await fetch('/health');
                 const data = await res.json();
-                statsEl.textContent = `${data.total_chunks} chunks indexed`;
+                statsEl.textContent = `${data.indexed_chunks} chunks indexed`;
+
+                // Show research toggle if API key is configured
+                if (data.research_available) {
+                    document.getElementById('researchSetting').style.display = 'block';
+                }
             } catch (e) {
                 statsEl.textContent = 'Error loading stats';
             }
@@ -603,6 +614,7 @@
 
             const topK = parseInt(document.getElementById('topK').value);
             const useRag = document.getElementById('useRag').checked;
+            const useResearch = document.getElementById('useResearch').checked;
             const streaming = document.getElementById('streaming').checked;
 
             // Add user message to display
@@ -613,13 +625,18 @@
             // Disable input and show loading
             sendBtn.disabled = true;
             inputEl.disabled = true;
-            showTypingIndicator(useRag ? 'Searching notes...' : 'Thinking...');
+            let statusText = 'Thinking...';
+            if (useRag && useResearch) statusText = 'Searching notes & papers...';
+            else if (useRag) statusText = 'Searching notes...';
+            else if (useResearch) statusText = 'Searching papers...';
+            showTypingIndicator(statusText);
 
             // Prepare request with history
             const requestBody = {
                 message,
                 top_k: topK,
                 use_rag: useRag,
+                use_research: useResearch,
                 history: getHistoryForRequest(),
                 summary: conversationSummary
             };

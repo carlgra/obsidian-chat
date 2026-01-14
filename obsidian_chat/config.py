@@ -39,6 +39,9 @@ class Config:
     # RAG settings
     top_k: int = int(os.getenv("RAG_TOP_K", "5"))
 
+    # Research API settings (Semantic Scholar)
+    semantic_scholar_api_key: str = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+
     def validate(self) -> list[str]:
         """Validate configuration and return list of errors."""
         errors = []

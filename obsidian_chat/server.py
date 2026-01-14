@@ -15,6 +15,7 @@ from .config import config
 from .llm import LLMClient, LLMError
 from .logging import get_logger
 from .rag import ObsidianRAG
+from .research import scholar_search, build_research_context, is_research_available, ResearchError
 from .utils import __version__, SYSTEM_PROMPT, SUMMARIZE_PROMPT, build_context_prompt
 
 log = get_logger(__name__)
@@ -30,6 +31,8 @@ class ChatRequest(BaseModel):
     message: str
     top_k: int = Field(default=10, ge=1, le=50)
     use_rag: bool = True
+    use_research: bool = False  # Search academic papers via Semantic Scholar
+    research_limit: int = Field(default=3, ge=1, le=10)
     stream: bool = True
     # Conversation history support
     history: list[ChatMessage] = Field(default_factory=list)
@@ -78,6 +81,7 @@ class HealthResponse(BaseModel):
     llm_url: str
     vault_path: str
     indexed_chunks: int
+    research_available: bool
 
 
 # Global instances
@@ -147,6 +151,7 @@ async def health_check():
         llm_url=config.llm_base_url,
         vault_path=config.vault_path,
         indexed_chunks=rag.collection.count() if rag else 0,
+        research_available=is_research_available(),
     )
 
 
@@ -169,6 +174,39 @@ async def query_notes(request: QueryRequest):
     return QueryResponse(
         results=[QueryResult(**r) for r in results]
     )
+
+
+class ResearchRequest(BaseModel):
+    query: str
+    limit: int = Field(default=5, ge=1, le=20)
+
+
+class ResearchPaper(BaseModel):
+    title: str | None
+    year: int | None
+    abstract: str | None
+    url: str | None
+
+
+class ResearchResponse(BaseModel):
+    papers: list[ResearchPaper]
+
+
+@app.post("/research", response_model=ResearchResponse)
+async def search_papers(request: ResearchRequest):
+    """Search academic papers via Semantic Scholar."""
+    if not is_research_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Research not available. Set SEMANTIC_SCHOLAR_API_KEY in .env"
+        )
+
+    try:
+        papers = scholar_search(request.query, limit=request.limit)
+        return ResearchResponse(papers=[ResearchPaper(**p) for p in papers])
+    except ResearchError as e:
+        log.error("Research error: {}", e.message)
+        raise HTTPException(status_code=e.status_code or 502, detail=str(e))
 
 
 @app.post("/index", response_model=IndexResponse)
@@ -221,17 +259,34 @@ async def chat(request: ChatRequest):
     if not rag or not llm:
         raise HTTPException(status_code=503, detail="Services not initialized")
 
-    log.debug("Chat request: {} (use_rag={}, top_k={})",
-              request.message[:50], request.use_rag, request.top_k)
+    log.debug("Chat request: {} (use_rag={}, use_research={}, top_k={})",
+              request.message[:50], request.use_rag, request.use_research, request.top_k)
 
-    # Get RAG context
+    # Build combined context from RAG and research
     sources = []
-    context_prompt = ""
+    context_parts = []
+
+    # Get RAG context from Obsidian notes
     if request.use_rag:
         contexts = rag.query(request.message, top_k=request.top_k)
         sources = contexts
-        context_prompt = build_context_prompt(contexts)
+        rag_context = build_context_prompt(contexts)
+        if rag_context:
+            context_parts.append(rag_context)
         log.debug("RAG returned {} contexts", len(contexts))
+
+    # Get research papers if enabled
+    if request.use_research and is_research_available():
+        try:
+            papers = scholar_search(request.message, limit=request.research_limit)
+            research_context = build_research_context(papers)
+            if research_context:
+                context_parts.append(research_context)
+            log.debug("Research returned {} papers", len(papers))
+        except ResearchError as e:
+            log.warning("Research search failed: {}", e.message)
+
+    context_prompt = "\n\n".join(context_parts)
 
     # Build messages with history
     messages = build_messages_with_history(request, context_prompt)
@@ -253,15 +308,32 @@ async def chat_stream(request: ChatRequest):
     if not rag or not llm:
         raise HTTPException(status_code=503, detail="Services not initialized")
 
-    log.debug("Chat stream request: {} (use_rag={}, top_k={})",
-              request.message[:50], request.use_rag, request.top_k)
+    log.debug("Chat stream request: {} (use_rag={}, use_research={}, top_k={})",
+              request.message[:50], request.use_rag, request.use_research, request.top_k)
 
-    # Get RAG context
-    context_prompt = ""
+    # Build combined context from RAG and research
+    context_parts = []
+
+    # Get RAG context from Obsidian notes
     if request.use_rag:
         contexts = rag.query(request.message, top_k=request.top_k)
-        context_prompt = build_context_prompt(contexts)
+        rag_context = build_context_prompt(contexts)
+        if rag_context:
+            context_parts.append(rag_context)
         log.debug("RAG returned {} contexts", len(contexts))
+
+    # Get research papers if enabled
+    if request.use_research and is_research_available():
+        try:
+            papers = scholar_search(request.message, limit=request.research_limit)
+            research_context = build_research_context(papers)
+            if research_context:
+                context_parts.append(research_context)
+            log.debug("Research returned {} papers", len(papers))
+        except ResearchError as e:
+            log.warning("Research search failed: {}", e.message)
+
+    context_prompt = "\n\n".join(context_parts)
 
     # Build messages with history
     messages = build_messages_with_history(request, context_prompt)
