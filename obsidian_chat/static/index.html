@@ -331,6 +331,17 @@
         .message h2 { font-size: 1.2rem; }
         .message h3 { font-size: 1.1rem; }
 
+        /* Link styles */
+        .message a {
+            color: var(--color-accent-secondary);
+            text-decoration: underline;
+            word-break: break-word;
+        }
+
+        .message a:hover {
+            color: var(--color-accent-primary);
+        }
+
         @media (max-width: 768px) {
             .settings {
                 display: none;
@@ -529,6 +540,12 @@
 
             // Inline code
             html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+            // Markdown links [text](url)
+            html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+            // Plain URLs (after escaping, so we need to handle &amp; in URLs)
+            html = html.replace(/(https?:\/\/[^\s<>"']+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
 
             // Unordered lists
             html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
