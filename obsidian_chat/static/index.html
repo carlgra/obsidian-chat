@@ -549,10 +549,18 @@
 
             // Unordered lists
             html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
-            html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+            html = html.replace(/(<li>.*<\/li>\n?)+/g, match => {
+                return '<ul>' + match.replace(/\n/g, '') + '</ul>';
+            });
 
             // Ordered lists
             html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+            html = html.replace(/(<li>.*<\/li>\n?)+/g, match => {
+                if (!match.includes('<ul>')) {  // Don't re-wrap already wrapped lists
+                    return '<ol>' + match.replace(/\n/g, '') + '</ol>';
+                }
+                return match;
+            });
 
             // Line breaks (but not inside tables/pre)
             html = html.replace(/\n/g, '<br>');
