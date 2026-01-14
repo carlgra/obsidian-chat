@@ -54,6 +54,20 @@ def test_client(mock_rag, mock_llm):
             yield client
 
 
+class TestVersionEndpoint:
+    """Tests for the /version endpoint."""
+
+    def test_get_version(self, test_client):
+        """Test version endpoint returns version string."""
+        response = test_client.get("/version")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "version" in data
+        assert isinstance(data["version"], str)
+        assert len(data["version"]) > 0
+
+
 class TestHealthEndpoint:
     """Tests for the /health endpoint."""
 

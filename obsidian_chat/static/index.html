@@ -340,7 +340,7 @@
 </head>
 <body>
     <header>
-        <h1>Obsidian Chat <span class="version">v0.1.1</span></h1>
+        <h1>Obsidian Chat <span class="version" id="version"></span></h1>
         <div class="stats" id="stats">Loading...</div>
     </header>
 
@@ -406,6 +406,7 @@
         const sendBtn = document.getElementById('sendBtn');
         const statsEl = document.getElementById('stats');
         const contextInfoEl = document.getElementById('contextInfo');
+        const versionEl = document.getElementById('version');
 
         // Conversation history management
         const SUMMARIZE_THRESHOLD = 6;  // Summarize after 6 messages (3 exchanges)
@@ -448,6 +449,18 @@
             this.style.height = 'auto';
             this.style.height = Math.min(this.scrollHeight, 200) + 'px';
         });
+
+        // Load version on startup
+        async function loadVersion() {
+            try {
+                const res = await fetch('/version');
+                const data = await res.json();
+                versionEl.textContent = `v${data.version}`;
+            } catch (e) {
+                versionEl.textContent = '';
+            }
+        }
+        loadVersion();
 
         // Load stats on startup
         async function loadStats() {

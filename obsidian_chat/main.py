@@ -11,7 +11,11 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from .config import config
 from .llm import LLMClient
+from .logging import get_logger
 from .rag import ObsidianRAG
+from .utils import __version__, SYSTEM_PROMPT, build_context_prompt
+
+log = get_logger(__name__)
 
 app = typer.Typer(
     name="obsidian-chat",
@@ -20,24 +24,22 @@ app = typer.Typer(
 console = Console()
 
 
-SYSTEM_PROMPT = """You are a helpful assistant with access to the user's personal notes from their Obsidian vault.
-Use the provided context from their notes to answer questions accurately and helpfully.
-When referencing information from the notes, mention which note it came from.
-If the context doesn't contain relevant information, say so and answer based on your general knowledge."""
+def version_callback(value: bool):
+    """Print version and exit."""
+    if value:
+        console.print(f"obsidian-chat v{__version__}")
+        raise typer.Exit()
 
 
-def build_context_prompt(contexts: list[dict]) -> str:
-    """Build a context prompt from RAG results."""
-    if not contexts:
-        return ""
-
-    context_parts = ["Here is relevant context from your Obsidian notes:\n"]
-    for ctx in contexts:
-        context_parts.append(f"--- From: {ctx['source']} ---")
-        context_parts.append(ctx["content"])
-        context_parts.append("")
-
-    return "\n".join(context_parts)
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False, "--version", "-V", callback=version_callback, is_eager=True,
+        help="Show version and exit."
+    ),
+):
+    """Chat with a local LLM using RAG from your Obsidian vault."""
+    pass
 
 
 @app.command()
@@ -59,6 +61,7 @@ def index(
             console.print(f"[red]Error:[/red] {error}")
         raise typer.Exit(1)
 
+    log.info("Indexing vault: {}", config.vault_path)
     console.print(f"[blue]Indexing vault:[/blue] {config.vault_path}")
 
     with Progress(

@@ -13,7 +13,11 @@ from pydantic import BaseModel, Field
 
 from .config import config
 from .llm import LLMClient, LLMError
+from .logging import get_logger
 from .rag import ObsidianRAG
+from .utils import __version__, SYSTEM_PROMPT, SUMMARIZE_PROMPT, build_context_prompt
+
+log = get_logger(__name__)
 
 
 # Request/Response models
@@ -80,19 +84,20 @@ class HealthResponse(BaseModel):
 rag: ObsidianRAG | None = None
 llm: LLMClient | None = None
 
-SYSTEM_PROMPT = """You are a helpful assistant with access to the user's personal notes from their Obsidian vault.
-Use the provided context from their notes to answer questions accurately and helpfully.
-When referencing information from the notes, mention which note it came from.
-If the context doesn't contain relevant information, say so and answer based on your general knowledge."""
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup."""
     global rag, llm
+    log.info("Starting obsidian-chat server v{}", __version__)
+    log.info("Initializing RAG with vault: {}", config.vault_path)
     rag = ObsidianRAG()
+    log.info("RAG initialized with {} chunks", rag.collection.count())
+    log.info("Initializing LLM client: {}", config.llm_base_url)
     llm = LLMClient()
+    log.info("Server ready")
     yield
+    log.info("Shutting down server")
     if llm:
         llm.close()
 
@@ -100,7 +105,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Obsidian Chat API",
     description="Chat with your Obsidian vault using RAG and a local LLM",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -114,18 +119,6 @@ app.add_middleware(
 )
 
 
-def build_context_prompt(contexts: list[dict]) -> str:
-    """Build a context prompt from RAG results."""
-    if not contexts:
-        return ""
-    context_parts = ["Here is relevant context from your Obsidian notes:\n"]
-    for ctx in contexts:
-        context_parts.append(f"--- From: {ctx['source']} ---")
-        context_parts.append(ctx["content"])
-        context_parts.append("")
-    return "\n".join(context_parts)
-
-
 # Serve static files
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -134,6 +127,16 @@ STATIC_DIR = Path(__file__).parent / "static"
 async def serve_ui():
     """Serve the web UI."""
     return FileResponse(STATIC_DIR / "index.html")
+
+
+class VersionResponse(BaseModel):
+    version: str
+
+
+@app.get("/version", response_model=VersionResponse)
+async def get_version():
+    """Get the application version."""
+    return VersionResponse(version=__version__)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -218,6 +221,9 @@ async def chat(request: ChatRequest):
     if not rag or not llm:
         raise HTTPException(status_code=503, detail="Services not initialized")
 
+    log.debug("Chat request: {} (use_rag={}, top_k={})",
+              request.message[:50], request.use_rag, request.top_k)
+
     # Get RAG context
     sources = []
     context_prompt = ""
@@ -225,6 +231,7 @@ async def chat(request: ChatRequest):
         contexts = rag.query(request.message, top_k=request.top_k)
         sources = contexts
         context_prompt = build_context_prompt(contexts)
+        log.debug("RAG returned {} contexts", len(contexts))
 
     # Build messages with history
     messages = build_messages_with_history(request, context_prompt)
@@ -232,7 +239,9 @@ async def chat(request: ChatRequest):
     # Get response (non-streaming)
     try:
         response = llm.chat(messages, system_prompt=SYSTEM_PROMPT, stream=False)
+        log.debug("LLM response received ({} chars)", len(response))
     except LLMError as e:
+        log.error("LLM error: {}", e.message)
         raise HTTPException(status_code=e.status_code or 502, detail=str(e))
 
     return ChatResponse(response=response, sources=sources)
@@ -244,11 +253,15 @@ async def chat_stream(request: ChatRequest):
     if not rag or not llm:
         raise HTTPException(status_code=503, detail="Services not initialized")
 
+    log.debug("Chat stream request: {} (use_rag={}, top_k={})",
+              request.message[:50], request.use_rag, request.top_k)
+
     # Get RAG context
     context_prompt = ""
     if request.use_rag:
         contexts = rag.query(request.message, top_k=request.top_k)
         context_prompt = build_context_prompt(contexts)
+        log.debug("RAG returned {} contexts", len(contexts))
 
     # Build messages with history
     messages = build_messages_with_history(request, context_prompt)
@@ -258,6 +271,7 @@ async def chat_stream(request: ChatRequest):
             for chunk in llm.chat(messages, system_prompt=SYSTEM_PROMPT, stream=True):
                 yield chunk
         except LLMError as e:
+            log.error("LLM streaming error: {}", e.message)
             yield f"\n\n[Error: {e.message}]"
 
     return StreamingResponse(generate(), media_type="text/plain")
@@ -269,9 +283,6 @@ class SummarizeRequest(BaseModel):
 
 class SummarizeResponse(BaseModel):
     summary: str
-
-
-SUMMARIZE_PROMPT = """Summarize this conversation concisely in 2-3 sentences, capturing the key topics discussed and any important conclusions or information shared. Focus on what would be useful context for continuing the conversation."""
 
 
 @app.post("/summarize", response_model=SummarizeResponse)
