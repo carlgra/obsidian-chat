@@ -66,6 +66,9 @@ class IndexRequest(BaseModel):
 
 class IndexResponse(BaseModel):
     files_processed: int
+    files_updated: int = 0
+    files_skipped: int = 0
+    files_removed: int = 0
     chunks_added: int
     errors: list[str]
 
@@ -221,6 +224,46 @@ async def index_vault(request: IndexRequest):
         None, lambda: rag.index_vault(force_reindex=request.force)
     )
     return IndexResponse(**stats)
+
+
+@app.post("/index/stream")
+async def index_vault_stream(request: IndexRequest):
+    """Index or reindex the Obsidian vault with streaming progress."""
+    import json
+    import queue
+
+    if not rag:
+        raise HTTPException(status_code=503, detail="RAG not initialized")
+
+    progress_queue: queue.Queue[dict | None] = queue.Queue()
+
+    def progress_callback(update: dict):
+        progress_queue.put(update)
+
+    def run_indexing():
+        try:
+            stats = rag.index_vault(
+                force_reindex=request.force,
+                progress_callback=progress_callback,
+            )
+            progress_queue.put({"phase": "complete", **stats})
+        except Exception as e:
+            progress_queue.put({"phase": "error", "message": str(e)})
+        finally:
+            progress_queue.put(None)  # Sentinel to end stream
+
+    async def generate() -> AsyncGenerator[str, None]:
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, run_indexing)
+
+        while True:
+            # Poll the queue from the async side
+            update = await loop.run_in_executor(None, progress_queue.get)
+            if update is None:
+                break
+            yield json.dumps(update) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
 def build_messages_with_history(request: ChatRequest, context_prompt: str) -> list[dict]:

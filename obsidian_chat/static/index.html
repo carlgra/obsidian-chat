@@ -743,18 +743,86 @@
         async function reindex() {
             if (!confirm('Reindex the entire vault? This may take a few minutes.')) return;
 
+            const reindexBtn = document.querySelector('.settings button[onclick="reindex()"]');
+            reindexBtn.disabled = true;
+
+            // Create progress bar UI in the settings panel
+            let progressEl = document.getElementById('indexProgress');
+            if (!progressEl) {
+                progressEl = document.createElement('div');
+                progressEl.id = 'indexProgress';
+                progressEl.style.cssText = 'margin-top: 0.5rem; font-size: 0.8rem;';
+                reindexBtn.parentElement.appendChild(progressEl);
+            }
+
             statsEl.textContent = 'Reindexing...';
+            progressEl.innerHTML = `
+                <div style="color: var(--color-text-muted); margin-bottom: 0.35rem;">Scanning vault...</div>
+                <div style="background: var(--color-bg-dark); border-radius: 4px; height: 8px; overflow: hidden;">
+                    <div id="indexProgressBar" style="height: 100%; width: 0%; background: var(--color-accent-secondary); border-radius: 4px; transition: width 0.2s;"></div>
+                </div>
+                <div id="indexProgressText" style="color: var(--color-text-muted); margin-top: 0.25rem; font-size: 0.75rem;"></div>
+            `;
+
             try {
-                const res = await fetch('/index', {
+                const res = await fetch('/index/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ force: true })
                 });
-                const data = await res.json();
-                statsEl.textContent = `Indexed ${data.files_processed} files, ${data.chunks_added} chunks`;
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let finalStats = null;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Process complete lines (newline-delimited JSON)
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // Keep incomplete line in buffer
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        const update = JSON.parse(line);
+
+                        if (update.phase === 'scanning') {
+                            progressEl.querySelector('div').textContent = `Found ${update.total_files} files to index...`;
+                        } else if (update.phase === 'indexing') {
+                            const pct = Math.round((update.current_file / update.total_files) * 100);
+                            document.getElementById('indexProgressBar').style.width = pct + '%';
+                            progressEl.querySelector('div').textContent = `Indexing file ${update.current_file} of ${update.total_files}`;
+                            document.getElementById('indexProgressText').textContent = update.file_name;
+                        } else if (update.phase === 'complete') {
+                            finalStats = update;
+                        } else if (update.phase === 'error') {
+                            throw new Error(update.message);
+                        }
+                    }
+                }
+
+                // Done
+                document.getElementById('indexProgressBar').style.width = '100%';
+                document.getElementById('indexProgressBar').style.background = 'var(--color-accent-primary)';
+                if (finalStats) {
+                    statsEl.textContent = `Indexed ${finalStats.files_processed} files, ${finalStats.chunks_added} chunks`;
+                    progressEl.querySelector('div').textContent = 'Done!';
+                    document.getElementById('indexProgressText').textContent =
+                        finalStats.errors.length ? `${finalStats.errors.length} error(s)` : '';
+                }
                 loadStats();
+
+                // Remove progress bar after a delay
+                setTimeout(() => { progressEl.innerHTML = ''; }, 4000);
+
             } catch (e) {
                 statsEl.textContent = `Error: ${e.message}`;
+                progressEl.innerHTML = `<div style="color: #ff6b6b;">Failed: ${e.message}</div>`;
+            } finally {
+                reindexBtn.disabled = false;
             }
         }
 

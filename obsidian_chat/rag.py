@@ -1,7 +1,7 @@
 """RAG module for indexing and querying Obsidian notes with ChromaDB."""
 
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 import chromadb
 from chromadb.config import Settings
@@ -121,78 +121,161 @@ class ObsidianRAG:
             start = end - overlap
         return chunks
 
-    def index_vault(self, force_reindex: bool = False) -> dict:
+    def _max_batch_size(self) -> int:
+        """Largest number of records Chroma will accept in one call."""
+        try:
+            return max(1, self.chroma_client.get_max_batch_size())
+        except Exception:
+            # Older clients don't expose the limit; fall back to a safe floor.
+            return 1000
+
+    def _indexed_mtimes(self) -> dict[str, float | None]:
+        """Map each indexed source path to the mtime it was indexed at.
+
+        Sources indexed before mtime tracking existed map to None, which marks
+        them as present-but-unknown so they get reindexed once.
+        """
+        indexed: dict[str, float | None] = {}
+        existing = self.collection.get(include=["metadatas"])
+
+        for metadata in existing["metadatas"] or []:
+            source = metadata.get("source")
+            if source is None:
+                continue
+            mtime = metadata.get("mtime")
+            # A source is unchanged only if every one of its chunks agrees.
+            if source in indexed and indexed[source] != mtime:
+                indexed[source] = None
+            else:
+                indexed[source] = mtime
+
+        return indexed
+
+    def index_vault(
+        self,
+        force_reindex: bool = False,
+        progress_callback: "Callable[[dict], None] | None" = None,
+    ) -> dict:
         """Index all supported files in the Obsidian vault.
 
         Supports: Markdown (.md), Text (.txt), PDF (.pdf)
 
+        Indexing is incremental: files whose mtime matches the indexed copy are
+        skipped, modified files have their old chunks replaced, and files that
+        have disappeared from the vault are purged from the collection.
+
         Args:
             force_reindex: If True, delete existing collection and reindex.
+            progress_callback: Optional callback receiving progress dicts.
 
         Returns:
             Dict with indexing statistics.
         """
         if force_reindex:
             self.chroma_client.delete_collection(self.collection_name)
-            self.collection = self.chroma_client.create_collection(
+            self.collection = self.chroma_client.get_or_create_collection(
                 name=self.collection_name,
                 metadata={"hnsw:space": "cosine"},
             )
 
         stats = {
             "files_processed": 0,
+            "files_updated": 0,
+            "files_skipped": 0,
+            "files_removed": 0,
             "chunks_added": 0,
             "errors": [],
             "by_type": {"markdown": 0, "text": 0, "pdf": 0},
         }
 
-        for file_path in self._iter_supported_files():
+        # Collect files upfront so we can report total count
+        files = list(self._iter_supported_files())
+        total_files = len(files)
+
+        if progress_callback:
+            progress_callback({"phase": "scanning", "total_files": total_files})
+
+        indexed = {} if force_reindex else self._indexed_mtimes()
+        seen_sources: set[str] = set()
+
+        for file_index, file_path in enumerate(files):
             try:
                 relative_path = file_path.relative_to(self.vault_path)
+                source = str(relative_path)
                 file_type = SUPPORTED_EXTENSIONS.get(file_path.suffix.lower(), "unknown")
+                seen_sources.add(source)
+
+                # Chroma stores metadata as float64; round so it round-trips.
+                mtime = round(file_path.stat().st_mtime, 3)
+                was_indexed = source in indexed
+
+                # Unchanged since the last run — nothing to do.
+                if was_indexed and indexed[source] == mtime:
+                    stats["files_skipped"] += 1
+                    continue
+
+                if progress_callback:
+                    progress_callback({
+                        "phase": "indexing",
+                        "current_file": file_index + 1,
+                        "total_files": total_files,
+                        "file_name": file_path.name,
+                    })
 
                 # Extract text content
                 content = self._extract_text(file_path)
+                chunks = self._chunk_text(content) if content.strip() else []
 
-                # Skip empty files
-                if not content.strip():
+                # Drop the previous chunks only once extraction has succeeded,
+                # otherwise a failed read would empty a good file from the index.
+                if was_indexed:
+                    self.collection.delete(where={"source": source})
+
+                # Emptied file: its chunks are gone and there is nothing to add.
+                if not chunks:
                     continue
 
-                # Chunk the content
-                chunks = self._chunk_text(content)
+                embeddings = self.embedder.encode(chunks).tolist()
 
-                for i, chunk in enumerate(chunks):
-                    doc_id = f"{relative_path}::chunk_{i}"
-
-                    # Check if already indexed
-                    existing = self.collection.get(ids=[doc_id])
-                    if existing["ids"]:
-                        continue
-
-                    # Generate embedding
-                    embedding = self.embedder.encode(chunk).tolist()
-
-                    # Add to collection
-                    self.collection.add(
-                        ids=[doc_id],
-                        embeddings=[embedding],
-                        documents=[chunk],
+                # Chroma caps how many records a single call may carry, and a
+                # long note can chunk well past it.
+                batch_size = self._max_batch_size()
+                for start in range(0, len(chunks), batch_size):
+                    batch = chunks[start : start + batch_size]
+                    self.collection.upsert(
+                        ids=[
+                            f"{source}::chunk_{start + i}" for i in range(len(batch))
+                        ],
+                        embeddings=embeddings[start : start + batch_size],
+                        documents=batch,
                         metadatas=[
                             {
-                                "source": str(relative_path),
-                                "chunk_index": i,
+                                "source": source,
+                                "chunk_index": start + i,
                                 "title": file_path.stem,
                                 "file_type": file_type,
+                                "mtime": mtime,
                             }
+                            for i in range(len(batch))
                         ],
                     )
-                    stats["chunks_added"] += 1
+                stats["chunks_added"] += len(chunks)
 
                 stats["files_processed"] += 1
+                if was_indexed:
+                    stats["files_updated"] += 1
                 stats["by_type"][file_type] = stats["by_type"].get(file_type, 0) + 1
 
             except Exception as e:
                 stats["errors"].append(f"{file_path}: {e}")
+
+        # Purge files that have been deleted or renamed out of the vault
+        for source in set(indexed) - seen_sources:
+            try:
+                self.collection.delete(where={"source": source})
+                stats["files_removed"] += 1
+            except Exception as e:
+                stats["errors"].append(f"{source}: failed to purge: {e}")
 
         return stats
 
