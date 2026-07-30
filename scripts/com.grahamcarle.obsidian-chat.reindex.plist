@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.grahamcarle.obsidian-chat.reindex</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/grahamcarle/code/claude-demo/obsidian-chat/scripts/nightly-reindex.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/grahamcarle/code/claude-demo/obsidian-chat</string>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Don't reindex just because the agent was (re)loaded; wait for 03:00.
+         launchd runs a missed StartCalendarInterval on wake, so a machine
+         asleep at 03:00 still reindexes once it comes back up. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/grahamcarle/Library/Logs/obsidian-chat-reindex.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/grahamcarle/Library/Logs/obsidian-chat-reindex.error.log</string>
+</dict>
+</plist>

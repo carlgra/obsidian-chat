@@ -15,6 +15,7 @@ dependencies = [
     "uvicorn",
     "pypdf",
     "loguru",
+    "mcp>=1.2.0",
 ]
 
 [project.optional-dependencies]

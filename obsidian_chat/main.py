@@ -75,6 +75,9 @@ def index(
 
     console.print(f"[green]Done![/green]")
     console.print(f"  Files processed: {stats['files_processed']}")
+    console.print(f"  Files updated: {stats['files_updated']}")
+    console.print(f"  Files unchanged: {stats['files_skipped']}")
+    console.print(f"  Files removed: {stats['files_removed']}")
     console.print(f"  Chunks added: {stats['chunks_added']}")
 
     if stats["errors"]:
@@ -257,6 +260,14 @@ def ask(
         raise typer.Exit(1)
     finally:
         llm.close()
+
+
+@app.command()
+def mcp():
+    """Start the MCP server (stdio transport) for Claude Desktop / Claude Code."""
+    from .mcp_server import mcp as mcp_server
+
+    mcp_server.run(transport="stdio")
 
 
 @app.command()
