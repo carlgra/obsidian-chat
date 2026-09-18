@@ -7,6 +7,7 @@ Run with: pytest -m slow
 Skip with: pytest -m "not slow"
 """
 
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -237,3 +238,125 @@ class TestObsidianRAG:
             # Should not raise an error
             stats = rag.index_vault()
             assert "pdf" in stats["by_type"]
+
+
+class TestIncrementalIndexing:
+    """Tests for mtime-based incremental reindexing."""
+
+    def _rag(self, vault, chroma, name):
+        from obsidian_chat.rag import ObsidianRAG
+
+        return ObsidianRAG(
+            vault_path=str(vault),
+            persist_dir=str(chroma),
+            collection_name=name,
+        )
+
+    def test_unchanged_files_are_skipped(self, temp_vault, temp_chroma_dir):
+        """A second run over an untouched vault re-embeds nothing."""
+        rag = self._rag(temp_vault, temp_chroma_dir, "test_incr_skip")
+
+        first = rag.index_vault()
+        second = rag.index_vault()
+
+        assert first["files_processed"] == 4
+        assert second["files_processed"] == 0
+        assert second["chunks_added"] == 0
+        assert second["files_skipped"] == 4
+
+    def test_modified_file_is_reindexed(self, temp_vault, temp_chroma_dir):
+        """Editing a note replaces its chunks rather than leaving stale text."""
+        rag = self._rag(temp_vault, temp_chroma_dir, "test_incr_modify")
+        rag.index_vault()
+
+        note = temp_vault / "note1.md"
+        note.write_text("# Python Basics\n\nPython now covers async programming.")
+        # Ensure the mtime actually differs from the indexed value
+        os.utime(note, (note.stat().st_atime, note.stat().st_mtime + 10))
+
+        stats = rag.index_vault()
+
+        assert stats["files_updated"] == 1
+        assert stats["files_processed"] == 1
+        assert stats["files_skipped"] == 3
+
+        stored = rag.collection.get(where={"source": "note1.md"})
+        combined = " ".join(stored["documents"])
+        assert "async programming" in combined
+        assert "Variables store data" not in combined
+
+    def test_shrunk_file_drops_trailing_chunks(self, temp_vault, temp_chroma_dir):
+        """A note that gets much shorter leaves no orphaned chunks behind."""
+        rag = self._rag(temp_vault, temp_chroma_dir, "test_incr_shrink")
+
+        note = temp_vault / "long.md"
+        note.write_text("word " * 2000)
+        rag.index_vault()
+        long_chunks = len(rag.collection.get(where={"source": "long.md"})["ids"])
+        assert long_chunks > 1
+
+        note.write_text("short")
+        os.utime(note, (note.stat().st_atime, note.stat().st_mtime + 10))
+        rag.index_vault()
+
+        assert len(rag.collection.get(where={"source": "long.md"})["ids"]) == 1
+
+    def test_deleted_file_is_purged(self, temp_vault, temp_chroma_dir):
+        """Removing a note from the vault removes it from the index."""
+        rag = self._rag(temp_vault, temp_chroma_dir, "test_incr_delete")
+        rag.index_vault()
+
+        assert rag.collection.get(where={"source": "note2.md"})["ids"]
+        (temp_vault / "note2.md").unlink()
+
+        stats = rag.index_vault()
+
+        assert stats["files_removed"] == 1
+        assert rag.collection.get(where={"source": "note2.md"})["ids"] == []
+
+    def test_legacy_index_without_mtime_is_upgraded(self, temp_vault, temp_chroma_dir):
+        """Chunks indexed before mtime tracking get reindexed once, not duplicated."""
+        rag = self._rag(temp_vault, temp_chroma_dir, "test_incr_legacy")
+        rag.index_vault()
+
+        # Simulate a pre-upgrade index by rewriting every chunk without mtime.
+        # Chroma's update() merges metadata, so the rows have to be replaced.
+        existing = rag.collection.get(include=["metadatas", "documents", "embeddings"])
+        stripped = [
+            {k: v for k, v in m.items() if k != "mtime"} for m in existing["metadatas"]
+        ]
+        rag.collection.delete(ids=existing["ids"])
+        rag.collection.add(
+            ids=existing["ids"],
+            embeddings=existing["embeddings"],
+            documents=existing["documents"],
+            metadatas=stripped,
+        )
+        before = rag.collection.count()
+        assert all("mtime" not in m for m in rag.collection.get(include=["metadatas"])["metadatas"])
+
+        stats = rag.index_vault()
+
+        assert stats["files_updated"] == 4
+        assert stats["files_skipped"] == 0
+        assert rag.collection.count() == before  # replaced, not duplicated
+
+    def test_file_larger_than_max_batch_is_indexed(self, temp_vault, temp_chroma_dir):
+        """A note chunking past Chroma's per-call record cap still indexes fully."""
+        rag = self._rag(temp_vault, temp_chroma_dir, "test_incr_batch")
+
+        # Force a small cap so the test stays fast but exercises the batching.
+        rag._max_batch_size = lambda: 5
+
+        note = temp_vault / "huge.md"
+        note.write_text("alpha beta gamma delta " * 1200)
+        expected = len(rag._chunk_text(note.read_text()))
+        assert expected > 5  # otherwise the batching path isn't hit
+
+        stats = rag.index_vault()
+
+        assert not [e for e in stats["errors"] if "huge.md" in e]
+        stored = rag.collection.get(where={"source": "huge.md"})
+        assert len(stored["ids"]) == expected
+        # chunk_index must stay contiguous across batch boundaries
+        assert sorted(m["chunk_index"] for m in stored["metadatas"]) == list(range(expected))
